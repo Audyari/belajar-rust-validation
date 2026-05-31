@@ -1,92 +1,41 @@
-use serde::{Deserialize, Serialize};
-use validator::{Validate, ValidationError, ValidationErrors};
+use serde::Deserialize;
+use validator::Validate;
 
-#[derive(Validate, Debug, Deserialize, Serialize)]
-struct Order {
-    #[validate(range(min = 1))]
-    quantity: i32,
+#[derive(Debug, Validate, Deserialize)]
+struct User {
+    #[validate(length(min = 3, message = "must be at least 3 characters"))]
+    username: String,
 
-    #[validate(range(min = 0))]
-    price: i32,
+    #[validate(
+        length(min = 8, message = "must be at least 8 characters"),
+        contains(pattern = "123", message = "must contain number 123")
+    )]
+    password: String,
 
-    total: i32,
-}
-
-impl Order {
-    pub fn validate_all(&self) -> Result<(), ValidationErrors> {
-        // 1️⃣ Validasi dari attribute
-        self.validate()?;
-
-        // 2️⃣ Cross-field validation
-        let expected = self.quantity * self.price;
-        if self.total != expected {
-            let mut errors = ValidationErrors::new();
-            let mut err = ValidationError::new("total_mismatch");
-            err.add_param("expected".into(), &expected);
-            err.add_param("actual".into(), &self.total);
-            errors.add("total", err);
-            return Err(errors);
-        }
-
-        Ok(())
-    }
+    #[validate(email(message = "invalid email format"))]
+    email: String,
 }
 
 fn main() {
-    // ========== SIMULASI DATA DARI EXTERNAL (JSON) ==========
+    let user = User {
+        username: "jo".to_string(),
+        password: "abc".to_string(),
+        email: "bukanemail".to_string(),
+    };
 
-    // Contoh 1: JSON dari user lewat API
-    let json_data = r#"
-    {
-        "quantity": 5,
-        "price": 1000,
-        "total": 6000
-    }
-    "#;
-
-    println!("📨 JSON dari Client:");
-    println!("{}", json_data);
+    println!("🔍 Validating User: {:?}", user);
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-    // PARSE JSON ke Rust Struct
-    match serde_json::from_str::<Order>(json_data) {
-        Ok(order) => {
-            println!("✅ JSON berhasil di-parse: {:?}", order);
-
-            // VALIDASI struct nya!
-            match order.validate_all() {
-                Ok(()) => println!("✅ Order valid! siap diproses"),
-                Err(e) => println!("❌ Validasi gagal: {}", e),
-            }
+    if let Err(e) = user.validate() {
+        println!("❌ Validation Errors:");
+        for (field, errors) in e.field_errors() {
+            let messages: Vec<&str> = errors
+                .iter()
+                .filter_map(|err| err.message.as_deref())
+                .collect();
+            println!("   • {}: {}", field, messages.join(", "));
         }
-        Err(e) => {
-            println!("❌ JSON invalid: {}", e);
-        }
-    }
-
-    println!("\n═══════════════════════════════════════════════════════\n");
-
-    // Contoh 2: JSON yang VALID
-    let json_valid = r#"
-    {
-        "quantity": 3,
-        "price": 2000,
-        "total": 6000
-    }
-    "#;
-
-    println!("📨 JSON Valid:");
-    println!("{}", json_valid);
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-    match serde_json::from_str::<Order>(json_valid) {
-        Ok(order) => {
-            println!("✅ Parse: {:?}", order);
-            match order.validate_all() {
-                Ok(()) => println!("✅ VALID! Lanjut proses..."),
-                Err(e) => println!("❌ Invalid: {}", e),
-            }
-        }
-        Err(e) => println!("❌ JSON error: {}", e),
+    } else {
+        println!("✅ User is valid!");
     }
 }
