@@ -1,41 +1,120 @@
-use serde::Deserialize;
+use std::borrow::Cow;
 use validator::Validate;
 
-#[derive(Debug, Validate, Deserialize)]
-struct User {
-    #[validate(length(min = 3, message = "must be at least 3 characters"))]
-    username: String,
-
-    #[validate(
-        length(min = 8, message = "must be at least 8 characters"),
-        contains(pattern = "123", message = "must contain number 123")
-    )]
-    password: String,
-
-    #[validate(email(message = "invalid email format"))]
-    email: String,
+#[derive(Debug, Validate)]
+struct Negara {
+    #[validate(length(min = 2, message = "Kode negara minimal 2 karakter"))]
+    kode: String,
 }
 
+#[derive(Debug, Validate)]
+struct Alamat {
+    #[validate(length(min = 5, message = "Jalan minimal 5 karakter"))]
+    jalan: String,
+
+    #[validate(nested)]
+    negara: Negara,
+}
+
+#[derive(Debug, Validate)]
+struct Pelanggan {
+    #[validate(length(min = 3, message = "Nama minimal 3 karakter"))]
+    nama: String,
+
+    #[validate(nested)]
+    alamat: Alamat,
+}
+
+impl Pelanggan {
+    fn validate_all(&self) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        // Validasi level 1: Pelanggan sendiri
+        if let Err(e) = self.validate() {
+            for (field, errs) in e.field_errors() {
+                for err in errs {
+                    let msg = err
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| Cow::Owned(format!("{:?}", err.code)));
+                    errors.push(format!("{}: {}", field, msg));
+                }
+            }
+        }
+
+        // Validasi level 2: Alamat (pake self.alamat, BUKAN alamat doang!)
+        if let Err(e) = self.alamat.validate() {
+            for (field, errs) in e.field_errors() {
+                for err in errs {
+                    let msg = err
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| Cow::Owned(format!("{:?}", err.code)));
+                    errors.push(format!("alamat.{}: {}", field, msg));
+                }
+            }
+        }
+
+        // Validasi level 3: Negara (pake self.alamat.negara!)
+        if let Err(e) = self.alamat.negara.validate() {
+            for (field, errs) in e.field_errors() {
+                for err in errs {
+                    let msg = err
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| Cow::Owned(format!("{:?}", err.code)));
+                    errors.push(format!("alamat.negara.{}: {}", field, msg));
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+}
 fn main() {
-    let user = User {
-        username: "jo".to_string(),
-        password: "abc".to_string(),
-        email: "bukanemail".to_string(),
+    // ========== KASUS 1: VALID ==========
+    let pelanggan_valid = Pelanggan {
+        nama: "Budi Santoso".to_string(),
+        alamat: Alamat {
+            jalan: "Jl. Merdeka No. 123".to_string(),
+            negara: Negara {
+                kode: "ID".to_string(),
+            },
+        },
     };
 
-    println!("🔍 Validating User: {:?}", user);
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-    if let Err(e) = user.validate() {
-        println!("❌ Validation Errors:");
-        for (field, errors) in e.field_errors() {
-            let messages: Vec<&str> = errors
-                .iter()
-                .filter_map(|err| err.message.as_deref())
-                .collect();
-            println!("   • {}: {}", field, messages.join(", "));
-        }
+    println!("🔍 Validating Valid Customer...");
+    if let Err(e) = pelanggan_valid.validate() {
+        println!("❌ Error: {}", e);
     } else {
-        println!("✅ User is valid!");
+        println!("✅ Valid!");
+    }
+
+    println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // ========== KASUS 2: INVALID (Nested Errors) ==========
+    let data = Pelanggan {
+        nama: "An".to_string(), // ❌ error
+        alamat: Alamat {
+            jalan: "Jl".to_string(), // ❌ error
+            negara: Negara {
+                kode: "I".to_string(), // ❌ error
+            },
+        },
+    };
+
+    println!("🔍 Test Nested Validation dengan validator v0.20.0");
+    match data.validate_all() {
+        Ok(_) => println!("✅ Valid!"),
+        Err(errors) => {
+            println!("❌ Errors:");
+            for err in errors {
+                println!("   • {}", err);
+            }
+        }
     }
 }
