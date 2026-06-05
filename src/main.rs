@@ -1,52 +1,44 @@
-use validator::{Validate, ValidationError, ValidationErrors};
+use validator::{ValidationError, ValidationErrors};
 
-#[allow(dead_code)]
-#[derive(Debug, Validate)]
-struct Transaction {
-    amount: u64,
-    balance: u64,
-
-    #[validate(custom(
-        function = "validate_withdrawal",
-        message = "Saldo tidak mencukupi",
-        code = "INSUFFICIENT_BALANCE"
-    ))]
-    withdrawal: u64,
+// 1. DEFINE CONTEXT
+#[derive(Debug)]
+pub struct MyContext {
+    pub min_length: usize,
+    pub max_length: usize,
 }
 
-fn validate_withdrawal(withdrawal: u64) -> Result<(), ValidationError> {
-    if withdrawal == 0 {
-        let mut err = ValidationError::new("WITHDRAWAL_ZERO");
-        err.message = Some("❌ Tidak bisa tarik tunai Rp 0".into());
+// 2. CUSTOM VALIDATOR (tanpa macro arg!)
+fn validate_with_context(value: &str, ctx: &MyContext) -> Result<(), ValidationError> {
+    if value.len() < ctx.min_length {
+        let mut err = ValidationError::new("too_short");
+        err.add_param("min".into(), &ctx.min_length);
+        err.add_param("actual".into(), &value.len());
         return Err(err);
     }
 
-    if withdrawal % 10000 != 0 {
-        let mut err = ValidationError::new("WITHDRAWAL_INVALID_AMOUNT");
-        err.message = Some("❌ Penarikan harus kelipatan Rp 10.000".into());
-        err.add_param("kelipatan".into(), &10000);
+    if value.len() > ctx.max_length {
+        let mut err = ValidationError::new("too_long");
+        err.add_param("max".into(), &ctx.max_length);
         return Err(err);
     }
 
     Ok(())
 }
 
+// 3. STRUCT BIASA (tanpa #[derive(Validate)])
 #[derive(Debug)]
-struct Transaction2 {
-    withdrawal: u64,
-    balance: u64,
+struct User {
+    username: String,
 }
 
-impl Validate for Transaction2 {
-    fn validate(&self) -> Result<(), ValidationErrors> {
+// 4. MANUAL IMPLEMENT ValidateArgs (ini yang stabil!)
+impl<'a> User {
+    fn validate_with_args(&self, ctx: &'a MyContext) -> Result<(), ValidationErrors> {
         let mut errors = ValidationErrors::new();
 
-        if self.withdrawal > self.balance {
-            let mut err = ValidationError::new("INSUFFICIENT_BALANCE");
-            err.message = Some("❌ Saldo tidak mencukupi".into());
-            err.add_param("balance".into(), &self.balance);
-            err.add_param("withdrawal".into(), &self.withdrawal);
-            errors.add("withdrawal", err);
+        // Panggil custom validator dengan context!
+        if let Err(e) = validate_with_context(&self.username, ctx) {
+            errors.add("username", e);
         }
 
         if errors.is_empty() {
@@ -57,105 +49,44 @@ impl Validate for Transaction2 {
     }
 }
 
-// ========== FUNGSI FORMAT ERROR MANUSIA ==========
-fn format_validation_errors(errors: ValidationErrors) -> String {
-    let mut result = String::new();
+fn main() {
+    println!("═══════════════════════════════════");
+    println!("   CONTEXT VALIDATION (MANUAL)");
+    println!("═══════════════════════════════════");
 
-    for (field, field_errors) in errors.field_errors() {
-        for error in field_errors {
-            // Ambil pesan error (custom message)
-            if let Some(msg) = &error.message {
-                result.push_str(&format!("  • {}: {}\n", field, msg));
-            } else {
-                // ✅ PERBAIKAN: Gunakan &*error.code atau error.code.clone() sebagai ganti .as_str()
-                let friendly_msg = match &*error.code {
-                    // <-- Perubahan di baris ini
-                    "INSUFFICIENT_BALANCE" => format!(
-                        "Saldo tidak cukup (Saldo: Rp {}, Penarikan: Rp {})",
-                        error.params.get("balance").unwrap_or(&"?".into()),
-                        error.params.get("withdrawal").unwrap_or(&"?".into())
-                    ),
-                    _ => format!("Validasi gagal: {}", error.code),
-                };
-                result.push_str(&format!("  • {}: {}\n", field, friendly_msg));
+    // Buat context
+    let ctx = MyContext {
+        min_length: 3,
+        max_length: 10,
+    };
+
+    // Test 1: Username terlalu pendek
+    let user1 = User {
+        username: "jo".to_string(),
+    };
+
+    println!("\n🔵 Test 1: username 'jo'");
+    match user1.validate_with_args(&ctx) {
+        Ok(_) => println!("✅ Valid"),
+        Err(e) => {
+            println!("❌ Error:");
+            for (field, errors) in e.field_errors() {
+                for err in errors {
+                    println!("   - {}: {}", field, err.code);
+                    println!("     Params: {:?}", err.params);
+                }
             }
         }
     }
 
-    if result.is_empty() {
-        "  ✅ Tidak ada error".to_string()
-    } else {
-        result
+    // Test 2: Username valid
+    let user2 = User {
+        username: "john".to_string(),
+    };
+
+    println!("\n🔵 Test 2: username 'john'");
+    match user2.validate_with_args(&ctx) {
+        Ok(_) => println!("✅ Valid!"),
+        Err(e) => println!("❌ Error: {:?}", e),
     }
-}
-
-// ========== FUNGSI PRINT YANG BAGUS ==========
-fn print_validation_result(result: Result<(), ValidationErrors>, title: &str) {
-    println!("\n┌─────────────────────────────────────────┐");
-    println!("│ {:<39} │", title);
-    println!("├─────────────────────────────────────────┤");
-
-    match result {
-        Ok(_) => {
-            println!("│ ✅ VALID                                 │");
-            println!("│   Data berhasil divalidasi              │");
-        }
-        Err(e) => {
-            println!("│ ❌ INVALID                               │");
-            println!("│   Error detail:                          │");
-            print!("{}", format_validation_errors(e));
-        }
-    }
-    println!("└─────────────────────────────────────────┘");
-}
-
-fn main() {
-    println!("\n╔═════════════════════════════════════════════╗");
-    println!("║        TRANSACTION VALIDATION SYSTEM        ║");
-    println!("╚═════════════════════════════════════════════╝");
-
-    // ========== TEST 1: Transaction 1 ==========
-    let tx1 = Transaction {
-        amount: 50_000,
-        balance: 30_000,
-        withdrawal: 50_000,
-    };
-
-    print_validation_result(tx1.validate(), "FIELD VALIDATION (Format)");
-
-    // ========== TEST 2: Transaction 2 ==========
-    let tx2 = Transaction2 {
-        withdrawal: 50_000,
-        balance: 30_000,
-    };
-
-    print_validation_result(tx2.validate(), "STRUCT VALIDATION (Cross-field)");
-
-    // ========== TEST 3: Withdrawal kelipatan 10rb ==========
-    let tx3 = Transaction {
-        amount: 100_000,
-        balance: 200_000,
-        withdrawal: 53_000, // ❌ Bukan kelipatan 10.000
-    };
-
-    print_validation_result(tx3.validate(), "FIELD VALIDATION (Kelipatan)");
-
-    // ========== TEST 4: Withdrawal 0 ==========
-    let tx4 = Transaction {
-        amount: 100_000,
-        balance: 200_000,
-        withdrawal: 0, // ❌ Tidak boleh 0
-    };
-
-    print_validation_result(tx4.validate(), "FIELD VALIDATION (Nol)");
-
-    // ========== TEST 5: Valid semua ==========
-    let tx5 = Transaction2 {
-        withdrawal: 50_000,
-        balance: 100_000,
-    };
-
-    print_validation_result(tx5.validate(), "VALID TRANSACTION");
-
-    println!("\n═══════════════════════════════════════════════\n");
 }
