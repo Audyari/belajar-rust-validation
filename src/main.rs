@@ -1,131 +1,107 @@
 use validator::Validate;
 
-// ==========================
-// CUSTOM VALIDATORS
-// ==========================
 pub mod custom_validator {
     use validator::ValidationError;
 
-    pub fn validasi_kode_product(kode: &str) -> Result<(), ValidationError> {
-        if !kode.starts_with("PRD-") {
-            let mut err = ValidationError::new("kode_product_invalid");
-            err.add_param("format".into(), &"PRD-XXXX");
+    pub fn validasi_username(username: &str) -> Result<(), ValidationError> {
+        // 1. Cek panjang: 3 sampai 20 karakter
+        if username.len() < 3 || username.len() > 20 {
+            let mut err = ValidationError::new("username_length_invalid");
+            err.add_param("min".into(), &3);
+            err.add_param("max".into(), &20);
             return Err(err);
         }
 
-        let number_part = &kode[4..];
+        // 2. Cek karakter pertama: harus huruf kecil (bukan underscore!)
+        let first_char = username.chars().next().unwrap();
+        if !first_char.is_ascii_lowercase() {
+            // ← underscore TIDAK boleh di awal
+            let mut err = ValidationError::new("username_first_char_invalid");
+            err.add_param("valid_first_chars".into(), &"a-z");
+            return Err(err);
+        }
 
-        if number_part.len() != 4 || !number_part.chars().all(|c| c.is_ascii_digit()) {
-            let mut err = ValidationError::new("kode_product_invalid_format");
-            err.add_param("example".into(), &"PRD-1234");
+        // 3. Cek karakter terakhir: tidak boleh underscore
+        if username.ends_with('_') {
+            let mut err = ValidationError::new("username_last_char_invalid");
+            err.add_param("reason".into(), &"cannot end with underscore");
+            return Err(err);
+        }
+
+        // 4. Cek karakter: hanya huruf kecil, angka, dan underscore
+        if !username
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
+            let mut err = ValidationError::new("username_invalid_chars");
+            err.add_param("allowed".into(), &"a-z, 0-9, _");
             return Err(err);
         }
 
         Ok(())
     }
-
-    pub fn validasi_diskon(diskon: u8) -> Result<(), ValidationError> {
-        match diskon {
-            0 => Ok(()),
-
-            5..=30 => Ok(()),
-
-            31..=50 => {
-                let mut err = ValidationError::new("diskon_tinggi");
-                err.add_param("max_normal".into(), &30);
-                Err(err)
-            }
-
-            _ => {
-                let mut err = ValidationError::new("diskon_invalid");
-                err.add_param("max".into(), &50);
-                Err(err)
-            }
-        }
-    }
 }
 
-// ==========================
-// STRUCT
-// ==========================
 #[derive(Debug, Validate)]
-struct Product {
-    #[validate(range(min = 1))]
-    id: u64,
+struct User {
+    #[allow(dead_code)]
+    id: u32,
 
-    #[validate(length(min = 1))]
-    name: String,
-
-    #[validate(custom(function = "custom_validator::validasi_kode_product"))]
-    kode_product: String,
-
-    #[validate(custom(function = "custom_validator::validasi_diskon"))]
-    diskon: u8,
+    // ✅ PERBAIKAN: hapus tanda petik!
+    #[validate(custom(function = "custom_validator::validasi_username"))]
+    username: String,
 }
 
 fn main() {
     println!("═══════════════════════════════════");
-    println!("   CUSTOM VALIDATION");
-    println!("═══════════════════════════════════");
+    println!("   USERNAME VALIDATION TEST");
+    println!("═══════════════════════════════════\n");
 
-    // -------------------------
-    // VALID
-    // -------------------------
-    let product_valid = Product {
-        id: 1,
-        name: "Laptop".to_string(),
-        kode_product: "PRD-1234".to_string(),
-        diskon: 20,
-    };
+    let test_users = vec![
+        ("john_doe", true, "valid username dengan underscore"),
+        ("john_doe_123", true, "valid username dengan angka"),
+        ("jo", false, "terlalu pendek (min 3)"),
+        (
+            "john_doe_12345678901234567890",
+            false,
+            "terlalu panjang (max 20)",
+        ),
+        ("2john", false, "diawali angka"),
+        ("john_", false, "diakhiri underscore"),
+        ("JohnDoe", false, "mengandung huruf besar"),
+        ("john@doe", false, "karakter terlarang (@)"),
+        ("_john", false, "diawali underscore"),
+        ("j", false, "hanya 1 karakter"),
+    ];
 
-    match product_valid.validate() {
-        Ok(_) => {
-            println!("✅ Product valid");
-            println!("{:#?}", product_valid);
-        }
-        Err(e) => {
-            println!("❌ Error:");
-            println!("{:#?}", e);
-        }
-    }
+    for (username, should_be_valid, description) in test_users {
+        let user = User {
+            id: 1,
+            username: username.to_string(),
+        };
 
-    println!();
-
-    // -------------------------
-    // KODE INVALID
-    // -------------------------
-    let product_invalid1 = Product {
-        id: 2,
-        name: "Mouse".to_string(),
-        kode_product: "ABC-123".to_string(),
-        diskon: 10,
-    };
-
-    match product_invalid1.validate() {
-        Ok(_) => println!("✅ Product valid"),
-        Err(e) => {
-            println!("❌ Error kode product:");
-            println!("{:#?}", e);
-        }
-    }
-
-    println!();
-
-    // -------------------------
-    // DISKON INVALID
-    // -------------------------
-    let product_invalid2 = Product {
-        id: 3,
-        name: "Keyboard".to_string(),
-        kode_product: "PRD-5678".to_string(),
-        diskon: 70,
-    };
-
-    match product_invalid2.validate() {
-        Ok(_) => println!("✅ Product valid"),
-        Err(e) => {
-            println!("❌ Error diskon:");
-            println!("{:#?}", e);
+        match user.validate() {
+            Ok(_) => {
+                if should_be_valid {
+                    println!("✅ '{}' → VALID (sesuai: {})", username, description);
+                } else {
+                    println!(
+                        "❌ '{}' → LULUS (seharusnya TIDAK valid!): {}",
+                        username, description
+                    );
+                }
+            }
+            Err(e) => {
+                if should_be_valid {
+                    println!(
+                        "❌ '{}' → ERROR (seharusnya valid!): {}",
+                        username, description
+                    );
+                    println!("   Error details: {:?}\n", e);
+                } else {
+                    println!("✅ '{}' → TIDAK VALID (sesuai: {})", username, description);
+                }
+            }
         }
     }
 }
