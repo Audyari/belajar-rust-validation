@@ -1,107 +1,44 @@
-use validator::Validate;
+use validator::{Validate, ValidationError, ValidationErrors};
 
-pub mod custom_validator {
-    use validator::ValidationError;
-
-    pub fn validasi_username(username: &str) -> Result<(), ValidationError> {
-        // 1. Cek panjang: 3 sampai 20 karakter
-        if username.len() < 3 || username.len() > 20 {
-            let mut err = ValidationError::new("username_length_invalid");
-            err.add_param("min".into(), &3);
-            err.add_param("max".into(), &20);
-            return Err(err);
-        }
-
-        // 2. Cek karakter pertama: harus huruf kecil (bukan underscore!)
-        let first_char = username.chars().next().unwrap();
-        if !first_char.is_ascii_lowercase() {
-            // ← underscore TIDAK boleh di awal
-            let mut err = ValidationError::new("username_first_char_invalid");
-            err.add_param("valid_first_chars".into(), &"a-z");
-            return Err(err);
-        }
-
-        // 3. Cek karakter terakhir: tidak boleh underscore
-        if username.ends_with('_') {
-            let mut err = ValidationError::new("username_last_char_invalid");
-            err.add_param("reason".into(), &"cannot end with underscore");
-            return Err(err);
-        }
-
-        // 4. Cek karakter: hanya huruf kecil, angka, dan underscore
-        if !username
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-        {
-            let mut err = ValidationError::new("username_invalid_chars");
-            err.add_param("allowed".into(), &"a-z, 0-9, _");
-            return Err(err);
-        }
-
-        Ok(())
-    }
+#[derive(Debug)]
+struct Register {
+    password: String,
+    confirm_password: String,
 }
 
-#[derive(Debug, Validate)]
-struct User {
-    #[allow(dead_code)]
-    id: u32,
+impl Validate for Register {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        let mut errors = ValidationErrors::new();
 
-    // ✅ PERBAIKAN: hapus tanda petik!
-    #[validate(custom(function = "custom_validator::validasi_username"))]
-    username: String,
+        // ✅ CUSTOM VALIDATION untuk membandingkan 2 field
+        if self.password != self.confirm_password {
+            let mut err = ValidationError::new("password_mismatch");
+            err.add_param(
+                "message".into(),
+                &"Password dan confirm password harus sama",
+            );
+            errors.add("confirm_password", err);
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
 }
 
 fn main() {
-    println!("═══════════════════════════════════");
-    println!("   USERNAME VALIDATION TEST");
-    println!("═══════════════════════════════════\n");
+    let valid = Register {
+        password: "secret123".to_string(),
+        confirm_password: "secret123".to_string(),
+    };
 
-    let test_users = vec![
-        ("john_doe", true, "valid username dengan underscore"),
-        ("john_doe_123", true, "valid username dengan angka"),
-        ("jo", false, "terlalu pendek (min 3)"),
-        (
-            "john_doe_12345678901234567890",
-            false,
-            "terlalu panjang (max 20)",
-        ),
-        ("2john", false, "diawali angka"),
-        ("john_", false, "diakhiri underscore"),
-        ("JohnDoe", false, "mengandung huruf besar"),
-        ("john@doe", false, "karakter terlarang (@)"),
-        ("_john", false, "diawali underscore"),
-        ("j", false, "hanya 1 karakter"),
-    ];
+    let invalid = Register {
+        password: "secret123".to_string(),
+        confirm_password: "wrong456".to_string(),
+    };
 
-    for (username, should_be_valid, description) in test_users {
-        let user = User {
-            id: 1,
-            username: username.to_string(),
-        };
-
-        match user.validate() {
-            Ok(_) => {
-                if should_be_valid {
-                    println!("✅ '{}' → VALID (sesuai: {})", username, description);
-                } else {
-                    println!(
-                        "❌ '{}' → LULUS (seharusnya TIDAK valid!): {}",
-                        username, description
-                    );
-                }
-            }
-            Err(e) => {
-                if should_be_valid {
-                    println!(
-                        "❌ '{}' → ERROR (seharusnya valid!): {}",
-                        username, description
-                    );
-                    println!("   Error details: {:?}\n", e);
-                } else {
-                    println!("✅ '{}' → TIDAK VALID (sesuai: {})", username, description);
-                }
-            }
-        }
-    }
+    println!("Valid register: {:?}", valid.validate().is_ok());
+    println!("Invalid register: {:?}", invalid.validate().is_ok());
 }
